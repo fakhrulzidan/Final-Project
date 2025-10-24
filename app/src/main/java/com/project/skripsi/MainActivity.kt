@@ -47,9 +47,10 @@ class MainActivity : ComponentActivity() {
                         xValue = accelerometerSensor.x.value,
                         yValue = accelerometerSensor.y.value,
                         zValue = accelerometerSensor.z.value,
+                        dataList = accelerometerSensor.dataList,
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(innerPadding) //
+                            .padding(innerPadding)
                     )
                 }
             }
@@ -60,6 +61,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         accelerometerSensor.startListening()
     }
+
     override fun onPause() {
         super.onPause()
         accelerometerSensor.stopListening()
