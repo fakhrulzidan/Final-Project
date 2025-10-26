@@ -1,4 +1,4 @@
-package com.project.skripsi.models
+package com.project.skripsi.data.models
 
 data class AccelerometerData(
     val x: Float,
