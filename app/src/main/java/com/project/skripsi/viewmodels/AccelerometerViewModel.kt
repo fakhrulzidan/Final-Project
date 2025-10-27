@@ -24,7 +24,7 @@ class AccelerometerViewModel(context: Context) : ViewModel() {
 
         if (isRecording.value) {
             dataList.add(0, AccelerometerData(x, y, z, System.currentTimeMillis()))
-            if (dataList.size > 200) dataList.removeAt(dataList.lastIndex)
+            if (dataList.size > 60) dataList.removeAt(dataList.lastIndex)
         }
     }
 
@@ -33,31 +33,20 @@ class AccelerometerViewModel(context: Context) : ViewModel() {
     val zValue = mutableStateOf(0f)
     val dataList = mutableStateListOf<AccelerometerData>()
     val isRecording = mutableStateOf(false)
-    val countdown = mutableStateOf(0)
 
     fun startRecording() {
         if (isRecording.value) return
 
         isRecording.value = true
-        dataList.clear()
+//        dataList.clear()
         accelerometerSensor.startListening()
         Log.d("AccelerometerVM", "Recording started")
-
-        countdown.value = 3
-        viewModelScope.launch {
-            for (i in 3 downTo 1) {
-                countdown.value = i
-                delay(1000)
-            }
-            stopRecording()
-        }
     }
 
     fun stopRecording() {
         if (!isRecording.value) return
 
         isRecording.value = false
-        countdown.value = 0
         accelerometerSensor.stopListening()
         Log.d("AccelerometerVM", "Recording stopped")
     }

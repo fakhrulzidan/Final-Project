@@ -33,7 +33,6 @@ class MainActivity : ComponentActivity() {
                         zValue = viewModel.zValue.value,
                         dataList = viewModel.dataList,
                         isRecording = viewModel.isRecording.value,
-                        countdown = viewModel.countdown.value,
                         onStart = { viewModel.startRecording() },
                         onStop = { viewModel.stopRecording() },
                         modifier = Modifier

@@ -24,7 +24,6 @@ fun AccelerometerScreen(
     zValue: Float,
     dataList: List<AccelerometerData>,
     isRecording: Boolean,
-    countdown: Int,
     onStart: () -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier
@@ -45,31 +44,11 @@ fun AccelerometerScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            if (countdown > 0) {
-                Text(
-                    text = "Recording... ($countdown s)",
-                    color = Color.Red,
-                    style = MaterialTheme.typography.titleMedium
-                )
-            } else if (isRecording) {
-                Text(
-                    text = "Recording...",
-                    color = Color.Red,
-                    style = MaterialTheme.typography.titleMedium
-                )
-            } else {
-                Text(
-                    text = "Idle",
-                    color = Color.Gray,
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-
             Spacer(modifier = Modifier.height(16.dp))
 
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 Button(onClick = onStart, enabled = !isRecording) {
-                    Text("Start 3s Recording")
+                    Text("Start Recording")
                 }
                 Button(onClick = onStop, enabled = isRecording) {
                     Text("Stop")
@@ -78,7 +57,7 @@ fun AccelerometerScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            Text("Riwayat Pembacaan (maks 200 data):", style = MaterialTheme.typography.titleMedium)
+            Text("Riwayat Pembacaan (maks 60 data):", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
 
             LazyColumn(modifier = Modifier.fillMaxSize()) {
