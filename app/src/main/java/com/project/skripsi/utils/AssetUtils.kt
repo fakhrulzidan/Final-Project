@@ -16,109 +16,30 @@ import java.nio.file.Files
 // ==============  LOAD MODEL FILE (.pt)  ===============
 // ======================================================
 
-object AssetUtils {
+object PytorchModelLoader {
 
-    private const val TAG = "AssetUtils"
-
-    /**
-     * Memuat file model .pt dari assets dan menyalinnya ke direktori cache internal.
-     * Ini perlu karena PyTorch tidak bisa langsung membaca file dari assets.
-     */
-    fun loadModel(context: Context, assetName: String): Module {
-        try {
-            val file = assetFilePath(context, assetName)
-            Log.d(TAG, "✅ Model file ditemukan di: $file")
-            return Module.load(file)
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Gagal memuat model dari asset: ${e.message}")
-            throw e
-        }
+    fun load(context: Context, modelName: String): Module {
+        val filePath = assetFilePath(context, modelName)
+        return Module.load(filePath)
     }
 
-    /**
-     * Memuat label file (.npy atau .txt) dari assets dan mengubahnya ke dalam List<String>.
-     */
-    fun loadLabels(context: Context, assetName: String): List<String> {
-        return try {
-            val file = assetFilePath(context, assetName)
-            val extension = assetName.substringAfterLast('.', "")
-            val labels: List<String>
-
-            if (extension == "txt") {
-                // Format sederhana: setiap baris satu label
-                labels = context.assets.open(assetName)
-                    .bufferedReader()
-                    .useLines { it.toList() }
-            } else if (extension == "npy") {
-                // Format NumPy: diasumsikan label disimpan dalam bentuk string array
-                val bytes = Files.readAllBytes(File(file).toPath())
-                val content = decodeNpyToStrings(bytes)
-                labels = content
-            } else {
-                throw IllegalArgumentException("Format label tidak dikenali: .$extension")
-            }
-
-            Log.d(TAG, "✅ Label berhasil dimuat (${labels.size} kelas): $labels")
-            labels
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Gagal memuat label: ${e.message}")
-            emptyList()
-        }
-    }
-
-    /**
-     * Helper — menyalin file dari assets ke storage internal.
-     */
     private fun assetFilePath(context: Context, assetName: String): String {
         val file = File(context.filesDir, assetName)
-
         if (file.exists() && file.length() > 0) {
-            Log.d(TAG, "ℹ️ Asset sudah ada di cache: ${file.absolutePath}")
             return file.absolutePath
         }
 
-        context.assets.open(assetName).use { inputStream ->
-            FileOutputStream(file).use { outputStream ->
+        context.assets.open(assetName).use { input ->
+            FileOutputStream(file).use { output ->
                 val buffer = ByteArray(4096)
-                var read: Int
-                while (true) {
-                    read = inputStream.read(buffer)
-                    if (read == -1) break
-                    outputStream.write(buffer, 0, read)
+                var read = input.read(buffer)
+                while (read != -1) {
+                    output.write(buffer, 0, read)
+                    read = input.read(buffer)
                 }
-                outputStream.flush()
             }
         }
-
-        Log.d(TAG, "📦 Asset disalin ke internal: ${file.absolutePath}")
         return file.absolutePath
-    }
-
-    /**
-     * Decoder sederhana untuk file .npy (NumPy string array).
-     * Hanya mendukung array 1D of strings.
-     */
-    private fun decodeNpyToStrings(bytes: ByteArray): List<String> {
-        try {
-            val headerEnd = String(bytes).indexOf("]")
-            val header = String(bytes.copyOfRange(0, headerEnd + 1))
-            val start = headerEnd + 1
-            val payload = bytes.copyOfRange(start, bytes.size)
-
-            // Heuristik sederhana — ubah byte menjadi teks dan pisahkan label
-            val payloadText = String(payload, Charsets.UTF_8)
-            return payloadText
-                .replace("[", "")
-                .replace("]", "")
-                .replace("'", "")
-                .replace("\"", "")
-                .split(",")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error parsing .npy file: ${e.message}")
-            return emptyList()
-        }
     }
 }
 //fun assetFilePath(context: Context, assetName: String): String {

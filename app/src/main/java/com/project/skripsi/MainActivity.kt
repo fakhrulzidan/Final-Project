@@ -33,6 +33,7 @@ class MainActivity : ComponentActivity() {
                         zValue = viewModel.zValue.value,
                         dataList = viewModel.dataList,
                         isRecording = viewModel.isRecording.value,
+                        predictedActivity = viewModel.predictedClass.value,
                         onStart = { viewModel.startRecording() },
                         onStop = { viewModel.stopRecording() },
                         modifier = Modifier
