@@ -13,9 +13,12 @@ import com.project.skripsi.data.models.AccelerometerData
 import com.project.skripsi.sensor.AccelerometerSensor
 import com.project.skripsi.utils.PytorchModelLoader
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.ClosedReceiveChannelException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.pytorch.IValue
@@ -24,68 +27,74 @@ import org.pytorch.Tensor
 
 class AccelerometerViewModel(context: Context) : ViewModel() {
 
-    // --- Load TorchScript model ---
-    private val model: Module = PytorchModelLoader.load(context, "lstm_model_scripted.pt")
+    private val model: Module =
+        PytorchModelLoader.load(context, "lstm_model_scripted.pt")
 
-    // --- Sensor implementation you already have ---
-    private val accelerometerSensor = AccelerometerSensor(context) { x, y, z ->
-        xValue.value = x
-        yValue.value = y
-        zValue.value = z
+    private val sensor = AccelerometerSensor(context)
 
-        if (isRecording.value) {
-            viewModelScope.launch(Dispatchers.Main) {
-                dataList.add(0, AccelerometerData(x, y, z, System.currentTimeMillis()))
+    private var sensorJob: Job? = null
+    private val windowSize = 60
+    private val window = ArrayDeque<Triple<Float, Float, Float>>(windowSize)
 
-                if (dataList.size > windowSize) {
-                    dataList.removeAt(dataList.lastIndex)
+    private val _dataList = MutableStateFlow<List<AccelerometerData>>(emptyList())
+    val dataList = _dataList.asStateFlow()
+
+    private val _predictedClass = MutableStateFlow("...")
+    val predictedClass = _predictedClass.asStateFlow()
+
+    val xValue = MutableStateFlow(0f)
+    val yValue = MutableStateFlow(0f)
+    val zValue = MutableStateFlow(0f)
+
+    val isRecording = MutableStateFlow(false)
+
+    fun startRecording() {
+        isRecording.value = true
+        sensor.start()
+
+        sensorJob = viewModelScope.launch(Dispatchers.Default) {
+            try {
+                for (sample in sensor.dataChannel) {
+                    val (x, y, z) = sample
+
+                    xValue.value = x
+                    yValue.value = y
+                    zValue.value = z
+
+                    window.addLast(sample)
+                    if (window.size > windowSize) window.removeFirst()
+
+                    _dataList.value = window.map {
+                        AccelerometerData(it.first, it.second, it.third, System.currentTimeMillis())
+                    }
+
+                    if (window.size == windowSize) {
+                        runInference(window.toList())
+                    }
                 }
-
-                // RUN INFERENCE WHEN WINDOW FULL
-                if (dataList.size == windowSize) {
-                    runInference()
-                }
+            } catch (e: ClosedReceiveChannelException) {
+                Log.d("AccelerometerVM", "Channel closed, stopping loop.")
             }
         }
     }
 
-    val xValue = mutableStateOf(0f)
-    val yValue = mutableStateOf(0f)
-    val zValue = mutableStateOf(0f)
-
-    val dataList = mutableStateListOf<AccelerometerData>()
-    val predictedClass = mutableStateOf("...")   // <--- For UI
-
-    val isRecording = mutableStateOf(false)
-
-    private val windowSize = 60   // adjust to your training setup
-
-    fun startRecording() {
-        if (isRecording.value) return
-//        dataList.clear()
-//        predictedClass.value = -1
-        isRecording.value = true
-        accelerometerSensor.startListening()
-    }
-
     fun stopRecording() {
-        if (!isRecording.value) return
         isRecording.value = false
-        accelerometerSensor.stopListening()
+        sensor.stop()
+        sensorJob?.cancel()
+        sensorJob = null
     }
 
-    // --- PREPARE INPUT AND RUN MODEL ---
-    private fun runInference() {
-        val windowCopy= dataList.toList()
-        viewModelScope.launch(Dispatchers.Default) {
+    private suspend fun runInference(data: List<Triple<Float, Float, Float>>) {
+        withContext(Dispatchers.Default) {
 
             val flat = FloatArray(windowSize * 3)
             var idx = 0
 
-            windowCopy.forEach { sample ->
-                flat[idx++] = (sample.x - HarModelConfig.mean[0]) / HarModelConfig.scale[0]
-                flat[idx++] = (sample.y - HarModelConfig.mean[1]) / HarModelConfig.scale[1]
-                flat[idx++] = (sample.z - HarModelConfig.mean[2]) / HarModelConfig.scale[2]
+            for ((x, y, z) in data) {
+                flat[idx++] = (x - HarModelConfig.mean[0]) / HarModelConfig.scale[0]
+                flat[idx++] = (y - HarModelConfig.mean[1]) / HarModelConfig.scale[1]
+                flat[idx++] = (z - HarModelConfig.mean[2]) / HarModelConfig.scale[2]
             }
 
             val inputTensor = Tensor.fromBlob(
@@ -93,22 +102,19 @@ class AccelerometerViewModel(context: Context) : ViewModel() {
                 longArrayOf(1, windowSize.toLong(), 3)
             )
 
-            val output = model.forward(IValue.from(inputTensor)).toTensor()
-            val logits = output.dataAsFloatArray
+            val output = model.forward(IValue.from(inputTensor)).toTensor().dataAsFloatArray
 
-            val predictedIndex = logits.indices.maxByOrNull { logits[it] } ?: -1
-            val label = if (predictedIndex == -1) "Unknown"
-            else HarModelConfig.labels[predictedIndex]
+            val bestIdx = output.indices.maxByOrNull { output[it] } ?: -1
+            val label = if (bestIdx == -1) "Unknown"
+            else HarModelConfig.labels[bestIdx]
 
-            // update UI on main thread
-            withContext(Dispatchers.Main) {
-                predictedClass.value = label
-            }
+            _predictedClass.value = label
         }
     }
 
     override fun onCleared() {
-        accelerometerSensor.stopListening()
+        sensorJob?.cancel()
+        sensor.stop()
         super.onCleared()
     }
 }

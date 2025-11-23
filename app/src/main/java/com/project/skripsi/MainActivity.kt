@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
 import androidx.activity.viewModels
+import androidx.compose.runtime.collectAsState
 import com.project.skripsi.ui.components.CustomBottomNavBar
 import com.project.skripsi.ui.accelerometer.AccelerometerScreen
 import com.project.skripsi.viewmodels.AccelerometerViewModel
@@ -28,14 +29,18 @@ class MainActivity : ComponentActivity() {
                     bottomBar = { CustomBottomNavBar() }
                 ) { innerPadding ->
                     AccelerometerScreen(
-                        xValue = viewModel.xValue.value,
-                        yValue = viewModel.yValue.value,
-                        zValue = viewModel.zValue.value,
-                        dataList = viewModel.dataList,
-                        isRecording = viewModel.isRecording.value,
-                        predictedActivity = viewModel.predictedClass.value,
+                        // Optional: if you want live x,y,z values
+                        xValue = viewModel.xValue.collectAsState().value,
+                        yValue = viewModel.yValue.collectAsState().value,
+                        zValue = viewModel.zValue.collectAsState().value,
+
+                        dataList = viewModel.dataList.collectAsState().value,     // if still needed
+                        isRecording = viewModel.isRecording.collectAsState().value,
+                        predictedActivity = viewModel.predictedClass.collectAsState().value,
+
                         onStart = { viewModel.startRecording() },
                         onStop = { viewModel.stopRecording() },
+
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(innerPadding)
