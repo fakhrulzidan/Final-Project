@@ -8,7 +8,7 @@ import org.pytorch.Tensor
 
 object HarModelConfig {
 
-    // Must match training StandardScaler
+    // Match training StandardScaler
     val mean = floatArrayOf(
         0.85641652f,
         8.81660203f,
@@ -21,7 +21,7 @@ object HarModelConfig {
         3.24596981f
     )
 
-    // Must match label_encoder.classes_
+    // Match label_encoder.classes_
     val labels = arrayOf(
         "Downstairs",
         "Jogging",

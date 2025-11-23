@@ -12,10 +12,12 @@ import com.project.skripsi.data.ml.HarModelConfig
 import com.project.skripsi.data.models.AccelerometerData
 import com.project.skripsi.sensor.AccelerometerSensor
 import com.project.skripsi.utils.PytorchModelLoader
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.pytorch.IValue
 import org.pytorch.Module
 import org.pytorch.Tensor
@@ -32,15 +34,17 @@ class AccelerometerViewModel(context: Context) : ViewModel() {
         zValue.value = z
 
         if (isRecording.value) {
-            dataList.add(0, AccelerometerData(x, y, z, System.currentTimeMillis()))
+            viewModelScope.launch(Dispatchers.Main) {
+                dataList.add(0, AccelerometerData(x, y, z, System.currentTimeMillis()))
 
-            if (dataList.size > windowSize) {
-                dataList.removeAt(dataList.lastIndex)
-            }
+                if (dataList.size > windowSize) {
+                    dataList.removeAt(dataList.lastIndex)
+                }
 
-            // RUN INFERENCE WHEN WINDOW FULL
-            if (dataList.size == windowSize) {
-                runInference()
+                // RUN INFERENCE WHEN WINDOW FULL
+                if (dataList.size == windowSize) {
+                    runInference()
+                }
             }
         }
     }
@@ -72,34 +76,37 @@ class AccelerometerViewModel(context: Context) : ViewModel() {
 
     // --- PREPARE INPUT AND RUN MODEL ---
     private fun runInference() {
-        // Prepare buffer of shape (60, 3)
-        val flat = FloatArray(windowSize * 3)
+        val windowCopy= dataList.toList()
+        viewModelScope.launch(Dispatchers.Default) {
 
-        var idx = 0
-        dataList.forEach { sample ->
-            // --- Normalize each axis using training StandardScaler ---
-            flat[idx++] = (sample.x - HarModelConfig.mean[0]) / HarModelConfig.scale[0]
-            flat[idx++] = (sample.y - HarModelConfig.mean[1]) / HarModelConfig.scale[1]
-            flat[idx++] = (sample.z - HarModelConfig.mean[2]) / HarModelConfig.scale[2]
-        }
+            val flat = FloatArray(windowSize * 3)
+            var idx = 0
 
-        // PyTorch input shape: (1, 60, 3)
-        val inputTensor = Tensor.fromBlob(
-            flat,
-            longArrayOf(1, windowSize.toLong(), 3)
-        )
+            windowCopy.forEach { sample ->
+                flat[idx++] = (sample.x - HarModelConfig.mean[0]) / HarModelConfig.scale[0]
+                flat[idx++] = (sample.y - HarModelConfig.mean[1]) / HarModelConfig.scale[1]
+                flat[idx++] = (sample.z - HarModelConfig.mean[2]) / HarModelConfig.scale[2]
+            }
 
-        val output = model.forward(IValue.from(inputTensor)).toTensor()
-        val logits = output.dataAsFloatArray
+            val inputTensor = Tensor.fromBlob(
+                flat,
+                longArrayOf(1, windowSize.toLong(), 3)
+            )
 
-        // Argmax
-        val predictedIndex = logits.indices.maxByOrNull { logits[it] } ?: -1
+            val output = model.forward(IValue.from(inputTensor)).toTensor()
+            val logits = output.dataAsFloatArray
 
-        // Convert integer class → label name
-        predictedClass.value =
-            if (predictedIndex == -1) "Unknown"
+            val predictedIndex = logits.indices.maxByOrNull { logits[it] } ?: -1
+            val label = if (predictedIndex == -1) "Unknown"
             else HarModelConfig.labels[predictedIndex]
+
+            // update UI on main thread
+            withContext(Dispatchers.Main) {
+                predictedClass.value = label
+            }
+        }
     }
+
     override fun onCleared() {
         accelerometerSensor.stopListening()
         super.onCleared()
