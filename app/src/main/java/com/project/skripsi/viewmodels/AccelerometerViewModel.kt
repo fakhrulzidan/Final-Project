@@ -19,6 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.pytorch.IValue
@@ -27,93 +28,91 @@ import org.pytorch.Tensor
 
 class AccelerometerViewModel(context: Context) : ViewModel() {
 
-    private val model: Module =
-        PytorchModelLoader.load(context, "lstm_model_scripted.pt")
+    private val model: Module = PytorchModelLoader.load(context, "lstm_model_scripted.pt")
 
     private val sensor = AccelerometerSensor(context)
 
-    private var sensorJob: Job? = null
+    val xValue = mutableStateOf(0f)
+    val yValue = mutableStateOf(0f)
+    val zValue = mutableStateOf(0f)
+
+    val predictedClass = mutableStateOf("...")
+    val isRecording = mutableStateOf(false)
+    val dataList = mutableStateListOf<AccelerometerData>()
+
     private val windowSize = 60
-    private val window = ArrayDeque<Triple<Float, Float, Float>>(windowSize)
 
-    private val _dataList = MutableStateFlow<List<AccelerometerData>>(emptyList())
-    val dataList = _dataList.asStateFlow()
+    init {
+        collectSensorData()
+    }
 
-    private val _predictedClass = MutableStateFlow("...")
-    val predictedClass = _predictedClass.asStateFlow()
+    private fun collectSensorData() {
+        viewModelScope.launch {
 
-    val xValue = MutableStateFlow(0f)
-    val yValue = MutableStateFlow(0f)
-    val zValue = MutableStateFlow(0f)
+            sensor.sensorFlow
+                .sample(50)
+                .collect { (x, y, z) ->
 
-    val isRecording = MutableStateFlow(false)
-
-    fun startRecording() {
-        isRecording.value = true
-        sensor.start()
-
-        sensorJob = viewModelScope.launch(Dispatchers.Default) {
-            try {
-                for (sample in sensor.dataChannel) {
-                    val (x, y, z) = sample
-
+                    // Update UI
                     xValue.value = x
                     yValue.value = y
                     zValue.value = z
 
-                    window.addLast(sample)
-                    if (window.size > windowSize) window.removeFirst()
+                    if (isRecording.value) {
+                        dataList.add(0, AccelerometerData(x, y, z, System.currentTimeMillis()))
 
-                    _dataList.value = window.map {
-                        AccelerometerData(it.first, it.second, it.third, System.currentTimeMillis())
-                    }
+                        if (dataList.size > windowSize)
+                            dataList.removeAt(dataList.lastIndex)
 
-                    if (window.size == windowSize) {
-                        runInference(window.toList())
+                        if (dataList.size == windowSize)
+                            runInference()
                     }
                 }
-            } catch (e: ClosedReceiveChannelException) {
-                Log.d("AccelerometerVM", "Channel closed, stopping loop.")
-            }
         }
     }
 
-    fun stopRecording() {
-        isRecording.value = false
-        sensor.stop()
-        sensorJob?.cancel()
-        sensorJob = null
+    fun startRecording() {
+        if (isRecording.value) return
+//        dataList.clear()
+        predictedClass.value = "..."
+        isRecording.value = true
+        sensor.start()
     }
 
-    private suspend fun runInference(data: List<Triple<Float, Float, Float>>) {
-        withContext(Dispatchers.Default) {
+    fun stopRecording() {
+        if (!isRecording.value) return
+        isRecording.value = false
+        sensor.stop()
+    }
+
+    private fun runInference() {
+        val windowCopy = dataList.toList()
+
+        viewModelScope.launch(Dispatchers.Default) {
 
             val flat = FloatArray(windowSize * 3)
             var idx = 0
 
-            for ((x, y, z) in data) {
-                flat[idx++] = (x - HarModelConfig.mean[0]) / HarModelConfig.scale[0]
-                flat[idx++] = (y - HarModelConfig.mean[1]) / HarModelConfig.scale[1]
-                flat[idx++] = (z - HarModelConfig.mean[2]) / HarModelConfig.scale[2]
+            windowCopy.forEach { sample ->
+                flat[idx++] = (sample.x - HarModelConfig.mean[0]) / HarModelConfig.scale[0]
+                flat[idx++] = (sample.y - HarModelConfig.mean[1]) / HarModelConfig.scale[1]
+                flat[idx++] = (sample.z - HarModelConfig.mean[2]) / HarModelConfig.scale[2]
             }
 
-            val inputTensor = Tensor.fromBlob(
-                flat,
-                longArrayOf(1, windowSize.toLong(), 3)
-            )
+            val tensor = Tensor.fromBlob(flat, longArrayOf(1, windowSize.toLong(), 3))
+            val output = model.forward(IValue.from(tensor)).toTensor()
+            val logits = output.dataAsFloatArray
 
-            val output = model.forward(IValue.from(inputTensor)).toTensor().dataAsFloatArray
+            val index = logits.indices.maxByOrNull { logits[it] } ?: -1
+            val label = if (index == -1) "Unknown" else HarModelConfig.labels[index]
 
-            val bestIdx = output.indices.maxByOrNull { output[it] } ?: -1
-            val label = if (bestIdx == -1) "Unknown"
-            else HarModelConfig.labels[bestIdx]
-
-            _predictedClass.value = label
+            withContext(Dispatchers.Main) {
+                predictedClass.value = label
+            }
         }
     }
 
     override fun onCleared() {
-        sensorJob?.cancel()
         sensor.stop()
         super.onCleared()
     }

@@ -30,13 +30,13 @@ class MainActivity : ComponentActivity() {
                 ) { innerPadding ->
                     AccelerometerScreen(
                         // Optional: if you want live x,y,z values
-                        xValue = viewModel.xValue.collectAsState().value,
-                        yValue = viewModel.yValue.collectAsState().value,
-                        zValue = viewModel.zValue.collectAsState().value,
+                        xValue = viewModel.xValue.value,
+                        yValue = viewModel.yValue.value,
+                        zValue = viewModel.zValue.value,
 
-                        dataList = viewModel.dataList.collectAsState().value,     // if still needed
-                        isRecording = viewModel.isRecording.collectAsState().value,
-                        predictedActivity = viewModel.predictedClass.collectAsState().value,
+                        dataList = viewModel.dataList,
+                        isRecording = viewModel.isRecording.value,
+                        predictedActivity = viewModel.predictedClass.value,
 
                         onStart = { viewModel.startRecording() },
                         onStop = { viewModel.stopRecording() },
